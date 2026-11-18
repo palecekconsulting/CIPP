@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { CippIcons } from '../../utils/icon-registry'
 import {
   Alert,
   AlertTitle,
@@ -10,7 +11,6 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import { Add, Delete, LinkOff, Link as LinkIcon, Tune } from '@mui/icons-material'
 import { useForm } from 'react-hook-form'
 import { CippDataTable } from '../CippTable/CippDataTable'
 import { CippApiDialog } from './CippApiDialog'
@@ -18,6 +18,7 @@ import CippFormComponent from './CippFormComponent'
 import { ApiGetCall } from '../../api/ApiCall'
 import { useDialog } from '../../hooks/use-dialog'
 import { usePermissions } from '../../hooks/use-permissions'
+import { tenantScope } from '../../utils/tenant-selection'
 
 // Sentinel for "the site itself" in the scope picker. A site collection root web always holds its
 // own permissions, so it has no inheritance to manage - only assignments.
@@ -69,21 +70,21 @@ export const CippLibraryPermissionsDialog = ({
 
   const libraries = ApiGetCall({
     url: '/api/ListSiteLibraries',
-    data: { SiteId: siteId, SiteUrl: siteUrl, tenantFilter: tenant },
+    data: { SiteId: siteId, SiteUrl: siteUrl, ...tenantScope(tenant) },
     queryKey: `SiteLibraries-${siteId ?? siteUrl}`,
     waiting: isOpen && !!siteUrl,
   })
 
   const permissions = ApiGetCall({
     url: '/api/ListSitePermissions',
-    data: { SiteUrl: siteUrl, ListId: listId, tenantFilter: tenant },
+    data: { SiteUrl: siteUrl, ListId: listId, ...tenantScope(tenant) },
     queryKey: permissionsQueryKey,
     waiting: isOpen && !!siteUrl,
   })
 
   const roleDefinitions = ApiGetCall({
     url: '/api/ListSiteRoleDefinitions',
-    data: { SiteUrl: siteUrl, tenantFilter: tenant },
+    data: { SiteUrl: siteUrl, ...tenantScope(tenant) },
     queryKey: `SiteRoleDefinitions-${siteUrl}`,
     waiting: isOpen && !!siteUrl,
   })
@@ -115,7 +116,7 @@ export const CippLibraryPermissionsDialog = ({
 
   // Payload shared by every action on the current scope.
   const scopePayload = {
-    tenantFilter: tenant,
+    ...tenantScope(tenant),
     SiteUrl: siteUrl,
     ListId: listId,
     LibraryName: libraryName,
@@ -132,7 +133,7 @@ export const CippLibraryPermissionsDialog = ({
     {
       label: 'Change Permission Level',
       type: 'POST',
-      icon: <Tune />,
+      icon: <CippIcons.Tune />,
       url: '/api/ExecSetLibraryPermission',
       confirmText: `Set the permission level [Title] holds on ${scopeLabel}. Any other level they hold here is removed.${inheritanceWarning}`,
       condition: (assignment) => canWrite && !assignment.IsSystemManaged,
@@ -165,7 +166,7 @@ export const CippLibraryPermissionsDialog = ({
     {
       label: 'Remove Permission',
       type: 'POST',
-      icon: <Delete />,
+      icon: <CippIcons.Delete />,
       url: '/api/ExecRemoveLibraryPermission',
       confirmText: `Remove [PermissionLevel] from [Title] on ${scopeLabel}?${inheritanceWarning}`,
       color: 'error',
@@ -218,7 +219,7 @@ export const CippLibraryPermissionsDialog = ({
                     size="small"
                     variant="outlined"
                     color="warning"
-                    startIcon={<LinkIcon />}
+                    startIcon={<CippIcons.Link />}
                     disabled={!canWrite}
                     onClick={resetDialog.handleOpen}
                   >
@@ -228,7 +229,7 @@ export const CippLibraryPermissionsDialog = ({
                   <Button
                     size="small"
                     variant="outlined"
-                    startIcon={<LinkOff />}
+                    startIcon={<CippIcons.LinkOff />}
                     disabled={!canWrite}
                     onClick={breakDialog.handleOpen}
                   >
@@ -240,16 +241,20 @@ export const CippLibraryPermissionsDialog = ({
           )}
 
           {isSiteRoot && (
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{
+              color: "text.secondary"
+            }}>
               These are the permissions on the site itself. Every library that still inherits gets
               its permissions from here.
             </Typography>
           )}
 
-          <Stack direction="row" justifyContent="flex-end">
+          <Stack direction="row" sx={{
+            justifyContent: "flex-end"
+          }}>
             <Button
               size="small"
-              startIcon={<Add />}
+              startIcon={<CippIcons.Add />}
               disabled={!canWrite}
               onClick={addDialog.handleOpen}
             >
@@ -399,7 +404,12 @@ export const CippLibraryPermissionsDialog = ({
               label="Keep the permissions it currently inherits"
               formControl={formHook}
             />
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "text.secondary",
+                mb: 1
+              }}>
               Turn this off to start from an empty permission set. Nobody but site collection admins
               will reach the library until permissions are granted.
             </Typography>
@@ -427,7 +437,7 @@ export const CippLibraryPermissionsDialog = ({
         row={siteRow ?? {}}
       />
     </Dialog>
-  )
+  );
 }
 
 export default CippLibraryPermissionsDialog

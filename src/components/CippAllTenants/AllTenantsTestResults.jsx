@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { CippIcons } from '../../utils/icon-registry'
 import {
   Button,
   Card,
@@ -8,13 +9,14 @@ import {
   Typography,
 } from '@mui/material'
 import { Grid } from '@mui/system'
-import { EyeIcon } from '@heroicons/react/24/outline'
 import { ApiGetCall } from '../../api/ApiCall.jsx'
+import { useMultiTenantScope } from '../../hooks/use-multi-tenant-scope'
 import { getCippError } from '../../utils/get-cipp-error'
 import { CippDataTable } from '../CippTable/CippDataTable'
 import { CippTestDetailOffCanvas } from '../CippTestDetail/CippTestDetailOffCanvas'
 import { AllTenantsStatTile } from './AllTenantsPrimitives'
 import { asArray } from './useAllTenantsDashboard'
+import { tenantScope } from '../../utils/tenant-selection'
 
 /**
  * Detail pane for one test result row. The estate-wide list is fetched summaryOnly (no
@@ -118,17 +120,18 @@ const ALL_STATUS_FILTERS = [
  */
 export const AllTenantsTestResults = ({ testType, title, perTenantPath }) => {
   const [showAll, setShowAll] = useState(false)
+  const scope = useMultiTenantScope()
 
   const reportApi = ApiGetCall({
     url: '/api/ListTestResultsTenants',
     data: {
-      tenantFilter: 'AllTenants',
+      ...tenantScope(scope),
       testType,
       summaryOnly: 'true',
       includeCounts: 'true',
       ...(showAll ? {} : { rowStatus: 'Failed,Investigate' }),
     },
-    queryKey: `AllTenants-TestResults-${testType}-${showAll ? 'all' : 'triage'}`,
+    queryKey: `AllTenants-TestResults-${scope}-${testType}-${showAll ? 'all' : 'triage'}`,
   })
 
   const rows = useMemo(() => asArray(reportApi.data), [reportApi.data])
@@ -247,7 +250,7 @@ export const AllTenantsTestResults = ({ testType, title, perTenantPath }) => {
                 {
                   label: 'View tenant dashboard',
                   link: `${perTenantPath}?tenantFilter=[Tenant]`,
-                  icon: <EyeIcon />,
+                  icon: <CippIcons.EyeIcon />,
                 },
               ]
             : []
@@ -257,3 +260,4 @@ export const AllTenantsTestResults = ({ testType, title, perTenantPath }) => {
     </Stack>
   )
 }
+

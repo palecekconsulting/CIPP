@@ -4,13 +4,17 @@ import { Box, Divider, Stack, Tab, Tabs } from '@mui/material'
 import { useSearchParams } from 'next/navigation'
 import { ApiGetCall } from '../api/ApiCall'
 import { getIconByName } from '../utils/icon-registry'
+import { getHiddenPages } from '../utils/filter-menu-items'
 import { useSettings } from '../hooks/use-settings'
 import { useIsMobileLayout } from '../hooks/use-breakpoint'
 import { TabNavigationContext, useTabNavigationValue } from './tab-navigation-context'
 import { CippTabPicker } from '../components/CippComponents/CippTabPicker'
+import { isMultiTenant } from '../utils/tenant-selection'
 
 export const TabbedLayout = (props) => {
-  const { tabOptions, children } = props
+  // `activePath` lets a page reached from a tab (rather than being one) keep its parent tab
+  // highlighted; the tab itself still navigates to its own path.
+  const { tabOptions, children, activePath } = props
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -27,25 +31,21 @@ export const TabbedLayout = (props) => {
     // Per-user gate: tabs marked { advanced: true } are hidden unless the user enabled Advanced
     // Views in preferences (Developer Options). Keeps diagnostic pages out of day-to-day use.
     let tabs = showAdvanced ? tabOptions : tabOptions.filter((option) => !option.advanced)
+    // Tabs marked { allTenantsOnly: true } compare tenants and have nothing to show for one.
+    if (!isMultiTenant(settings?.currentTenant)) {
+      tabs = tabs.filter((option) => !option.allTenantsOnly)
+    }
 
     if (!featureFlags.isSuccess || !Array.isArray(featureFlags.data)) return tabs
 
     // A DISABLED flag hides its Pages; an ENABLED flag hides its HidesPages (the
     // pages it replaces - e.g. Baselines supersedes the classic Standards tabs).
-    const disabledPages = featureFlags.data
-      .filter((flag) => flag.Enabled === false || flag.enabled === false)
-      .flatMap((flag) => flag.Pages || flag.pages || [])
-      .filter((page) => typeof page === 'string')
-    const replacedPages = featureFlags.data
-      .filter((flag) => flag.Enabled === true || flag.enabled === true)
-      .flatMap((flag) => flag.HidesPages || flag.hidesPages || [])
-      .filter((page) => typeof page === 'string')
-    const hiddenPages = [...disabledPages, ...replacedPages]
+    const hiddenPages = getHiddenPages(featureFlags.data)
 
     if (hiddenPages.length === 0) return tabs
 
     return tabs.filter((option) => !hiddenPages.includes(option.path))
-  }, [tabOptions, featureFlags.isSuccess, featureFlags.data, showAdvanced])
+  }, [tabOptions, featureFlags.isSuccess, featureFlags.data, showAdvanced, settings?.currentTenant])
 
   const navigateToTab = useCallback(
     (value) => {
@@ -60,7 +60,8 @@ export const TabbedLayout = (props) => {
 
   const handleTabsChange = (event, value) => navigateToTab(value)
 
-  const currentTab = visibleTabs.find((option) => option.path === pathname)
+  const resolvedPath = activePath ?? pathname
+  const currentTab = visibleTabs.find((option) => option.path === resolvedPath)
 
   // Below md the tab row scrolls horizontally and still hides tabs off the right edge, so
   // navigation collapses to a full-width picker in the slot the tab bar occupied. Always the
@@ -69,7 +70,7 @@ export const TabbedLayout = (props) => {
   const isMobile = useIsMobileLayout()
   const tabNavValue = useTabNavigationValue({
     tabs: visibleTabs,
-    currentPath: pathname,
+    currentPath: resolvedPath,
     onNavigate: navigateToTab,
     enabled: isMobile,
   })

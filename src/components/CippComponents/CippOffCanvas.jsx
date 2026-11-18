@@ -1,12 +1,9 @@
 import { Drawer, Box, Button, IconButton, Typography, Divider } from "@mui/material";
+import { CippIcons } from "../../utils/icon-registry";
 import { CippPropertyListCard } from "../CippCards/CippPropertyListCard";
 import { getCippTranslation } from "../../utils/get-cipp-translation";
 import { getCippFormatting } from "../../utils/get-cipp-formatting";
 import { useMediaQuery, Grid } from "@mui/system";
-import CloseIcon from "@mui/icons-material/Close";
-import ArrowBackIosNewIcon from "@mui/icons-material/ArrowBackIosNew";
-import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { renderUrlValue } from "../../utils/render-url-value";
 import { useHistoryDismiss } from "../../hooks/use-history-dismiss";
 
@@ -100,9 +97,6 @@ export const CippOffCanvas = (props) => {
   return (
     <>
       <Drawer
-        PaperProps={{
-          sx: { width: drawerWidth },
-        }}
         ModalProps={{
           keepMounted: keepMounted,
         }}
@@ -112,6 +106,11 @@ export const CippOffCanvas = (props) => {
         anchor={"right"}
         open={visible}
         onClose={onClose}
+        slotProps={{
+          paper: {
+            sx: { width: drawerWidth },
+          }
+        }}
       >
         <Box
           sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", p: 1.5 }}
@@ -120,7 +119,7 @@ export const CippOffCanvas = (props) => {
           {mdDown ? (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
               <IconButton onClick={onClose} aria-label="Back" sx={{ ml: -0.5 }}>
-                <ArrowBackIosNewIcon fontSize="small" />
+                <CippIcons.ArrowBackIosNew fontSize="small" />
               </IconButton>
               <Typography variant="h6" noWrap>
                 {title}
@@ -138,7 +137,7 @@ export const CippOffCanvas = (props) => {
                   size="small"
                   title="Previous row"
                 >
-                  <KeyboardArrowUpIcon />
+                  <CippIcons.KeyboardArrowUp />
                 </IconButton>
                 <IconButton
                   onClick={onNavigateDown}
@@ -146,13 +145,13 @@ export const CippOffCanvas = (props) => {
                   size="small"
                   title="Next row"
                 >
-                  <KeyboardArrowDownIcon />
+                  <CippIcons.KeyboardArrowDown />
                 </IconButton>
               </>
             )}
             {!mdDown && (
-              <IconButton onClick={onClose}>
-                <CloseIcon />
+              <IconButton onClick={onClose} aria-label="Close" title="Close">
+                <CippIcons.Close />
               </IconButton>
             )}
           </Box>
@@ -162,7 +161,7 @@ export const CippOffCanvas = (props) => {
           sx={{
             display: "flex",
             flexDirection: "column",
-            height: "calc(100vh - 73px)", // Account for header + divider
+            flexGrow: 1, // The Drawer paper is a flex column; fill whatever the header leaves
             minHeight: 0,
           }}
         >
@@ -175,7 +174,12 @@ export const CippOffCanvas = (props) => {
               minHeight: 0,
             }}
           >
-            <Grid container spacing={1} sx={{ flexGrow: 1 }}>
+            <Grid
+              container
+              spacing={1}
+              // stretched rows would split the spare height into a gap under the info card
+              sx={{ flexGrow: 1, alignContent: infoCard && children ? "flex-start" : undefined }}
+            >
               {actionsPosition !== "bottom" && infoCard}
               <Grid
                 size={{ xs: 12 }}
@@ -207,6 +211,8 @@ export const CippOffCanvas = (props) => {
                 p: 2,
                 flexShrink: 0,
                 mt: "auto",
+                maxHeight: "50vh",
+                overflowY: "auto",
               }}
             >
               {footer}
@@ -231,7 +237,7 @@ export const CippOffCanvas = (props) => {
               <Button
                 variant="outlined"
                 color="inherit"
-                startIcon={<KeyboardArrowUpIcon />}
+                startIcon={<CippIcons.KeyboardArrowUp />}
                 onClick={onNavigateUp}
                 disabled={!canNavigateUp}
                 sx={{ flex: 1, minHeight: 44, borderColor: "divider" }}
@@ -239,14 +245,19 @@ export const CippOffCanvas = (props) => {
                 Prev
               </Button>
               {navigationPosition?.total > 0 && (
-                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    color: "text.secondary",
+                    whiteSpace: "nowrap"
+                  }}>
                   {navigationPosition.index} of {navigationPosition.total}
                 </Typography>
               )}
               <Button
                 variant="outlined"
                 color="inherit"
-                endIcon={<KeyboardArrowDownIcon />}
+                endIcon={<CippIcons.KeyboardArrowDown />}
                 onClick={onNavigateDown}
                 disabled={!canNavigateDown}
                 sx={{ flex: 1, minHeight: 44, borderColor: "divider" }}

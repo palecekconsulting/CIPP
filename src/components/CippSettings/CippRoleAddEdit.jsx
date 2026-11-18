@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-
+import { CippIcons } from "../../utils/icon-registry";
 import {
   Box,
   Button,
@@ -15,16 +15,12 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
-
 import { Grid } from "@mui/system";
 import { ApiGetCall, ApiGetCallWithPagination, ApiPostCall } from "../../api/ApiCall";
 import { CippOffCanvas } from "../CippComponents/CippOffCanvas";
 import { CippFormTenantSelector } from "../CippComponents/CippFormTenantSelector";
-import { Save, WarningOutlined } from "@mui/icons-material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import CippFormComponent from "../CippComponents/CippFormComponent";
 import { useForm, useFormState, useWatch } from "react-hook-form";
-import { InformationCircleIcon } from "@heroicons/react/24/outline";
 import { CippApiResults } from "../CippComponents/CippApiResults";
 import cippRoles from "../../data/cipp-roles.json";
 import { GroupHeader, GroupItems } from "../CippComponents/CippAutocompleteGrouping";
@@ -38,16 +34,27 @@ import {
   buildRuleSuggestions,
 } from "../../utils/permission-rules";
 
+// Stable reference so the ApiGetCall default doesn't retrigger effects every render.
+const EMPTY_PERMISSIONS = [];
+
 export const CippRoleAddEdit = ({ selectedRole }) => {
   const updatePermissions = ApiPostCall({
     urlFromData: true,
     relatedQueryKeys: ["customRoleList", "customRoleTable"],
   });
 
+  const featureFlags = ApiGetCall({
+    url: "/api/ListFeatureFlags",
+    queryKey: "featureFlags",
+    staleTime: 600000,
+  });
+  const tenantGroupSelectorEnabled =
+    Array.isArray(featureFlags.data) &&
+    featureFlags.data.some((flag) => flag.Id === "TenantGroupSelector" && flag.Enabled);
+
   const [allTenantSelected, setAllTenantSelected] = useState(false);
   const [cippApiRoleSelected, setCippApiRoleSelected] = useState(false);
   const [selectedRoleState, setSelectedRoleState] = useState(null);
-  const [updateDefaults, setUpdateDefaults] = useState(false);
   const [baseRolePermissions, setBaseRolePermissions] = useState({});
   const [isBaseRole, setIsBaseRole] = useState(false);
   // New roles start in simple (pattern) mode; existing roles pick their mode in the
@@ -62,8 +69,12 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
       allowedTenants: [],
       blockedTenants: [],
       BlockedEndpoints: [],
+      BlockAllTenants: false,
+      BlockTenantGroups: false,
       IPRange: [],
+      AppRoleTenants: [],
       Permissions: {},
+      AllowedRolesTemplate: null,
       PermissionRulesInclude: [],
       PermissionRulesExclude: [],
     },
@@ -94,7 +105,12 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
   const setDefaults = useWatch({ control: formControl.control, name: "Defaults" });
   const selectedPermissions = useWatch({ control: formControl.control, name: "Permissions" });
   const selectedEntraGroup = useWatch({ control: formControl.control, name: "EntraGroup" });
+  const selectedRolesTemplate = useWatch({
+    control: formControl.control,
+    name: "AllowedRolesTemplate",
+  });
   const ipRanges = useWatch({ control: formControl.control, name: "IPRange" });
+  const appRoleTenants = useWatch({ control: formControl.control, name: "AppRoleTenants" });
   const includeRules = useWatch({ control: formControl.control, name: "PermissionRulesInclude" });
   const excludeRules = useWatch({ control: formControl.control, name: "PermissionRulesExclude" });
   const baseRoleTemplate = useWatch({ control: formControl.control, name: "BaseRoleTemplate" });
@@ -111,7 +127,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
   }, [baseRoleTemplate]);
 
   const {
-    data: apiPermissions = [],
+    data: apiPermissions = EMPTY_PERMISSIONS,
     isFetching: apiPermissionFetching,
     isSuccess: apiPermissionSuccess,
   } = ApiGetCall({
@@ -225,10 +241,15 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
 
   useEffect(() => {
     if (selectedRole && cippRoles[selectedRole]) {
-      setBaseRolePermissions(getBaseRolePermissions(selectedRole));
+      // Skip the setState when both the old and new value are empty (e.g. apiPermissions
+      // still pending) so this doesn't create a fresh {} reference on every render.
+      setBaseRolePermissions((prev) => {
+        const next = getBaseRolePermissions(selectedRole);
+        return Object.keys(prev).length === 0 && Object.keys(next).length === 0 ? prev : next;
+      });
       setIsBaseRole(true);
     } else {
-      setBaseRolePermissions({});
+      setBaseRolePermissions((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       setIsBaseRole(false);
     }
   }, [selectedRole, apiPermissions]);
@@ -237,9 +258,12 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
     if (
       (customRoleListSuccess &&
         tenantsSuccess &&
+        // The grid is built from the permission list; loading before it arrives yields {}.
+        apiPermissionSuccess &&
         selectedRole &&
         selectedRoleState !== selectedRole) ||
-      baseRolePermissions
+      // An empty {} isn't a real change — only a populated baseRolePermissions should retrigger this.
+      Object.keys(baseRolePermissions).length > 0
     ) {
       setSelectedRoleState(selectedRole);
       const isApiRole = selectedRole === "api-role";
@@ -319,7 +343,10 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
           Object.keys(apiPermissions[cat]).forEach((obj) => {
             const key = `${cat}${obj}`;
             const existingPerm = permissions?.[key];
-            processed[key] = existingPerm || `${cat}.${obj}.None`;
+            // Roles saved while the bug above was live hold ".undefined"; treat as None.
+            processed[key] = /\.(None|Read|ReadWrite)$/.test(existingPerm)
+              ? existingPerm
+              : `${cat}.${obj}.None`;
           });
         });
         return processed;
@@ -352,8 +379,16 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
         allowedTenants: newAllowedTenants,
         blockedTenants: newBlockedTenants,
         BlockedEndpoints: processedBlockedEndpoints,
+        BlockAllTenants: Boolean(currentPermissions?.BlockAllTenants),
+        BlockTenantGroups: Boolean(currentPermissions?.BlockTenantGroups),
         IPRange: processedIPRanges,
+        AppRoleTenants:
+          currentPermissions?.AppRoleTenants?.map((tenantId) => ({
+            label: tenantId,
+            value: tenantId,
+          })) || [],
         EntraGroup: currentPermissions?.EntraGroup,
+        AllowedRolesTemplate: currentPermissions?.AllowedRolesTemplate || null,
         PermissionRulesInclude: toRuleOptions(storedRules?.Include),
         PermissionRulesExclude: toRuleOptions(storedRules?.Exclude),
       });
@@ -365,11 +400,12 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
         setGridDiverged(false);
       }
     }
-  }, [customRoleList, customRoleListSuccess, tenantsSuccess, baseRolePermissions]);
+  }, [customRoleList, customRoleListSuccess, tenantsSuccess, apiPermissionSuccess, baseRolePermissions]);
 
   useEffect(() => {
-    if (updateDefaults !== setDefaults) {
-      setUpdateDefaults(setDefaults);
+    // Only a real "Set All" selection applies; the watched field is undefined on mount
+    // and after reset(), and applying that wrote "Cat.Obj.undefined" for every row.
+    if (setDefaults) {
       var newPermissions = {};
       Object.keys(apiPermissions).forEach((cat) => {
         Object.keys(apiPermissions[cat]).forEach((obj) => {
@@ -384,7 +420,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
       });
       formControl.setValue("Permissions", newPermissions);
     }
-  }, [setDefaults, updateDefaults]);
+  }, [setDefaults]);
 
   useEffect(() => {
     var alltenant = false;
@@ -484,7 +520,11 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
         AllowedTenants: processedAllowedTenants,
         BlockedTenants: processedBlockedTenants,
         BlockedEndpoints: processedBlockedEndpoints,
+        BlockAllTenants: Boolean(values?.["BlockAllTenants"]),
+        BlockTenantGroups: Boolean(values?.["BlockTenantGroups"]),
         IPRange: processedIPRanges,
+        AppRoleTenants: values?.["AppRoleTenants"]?.map((tenant) => tenant?.value || tenant) || [],
+        AllowedRolesTemplate: selectedRolesTemplate || null,
       },
     });
   };
@@ -504,15 +544,18 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
         // The None/Read/ReadWrite radio row is wider than a phone leaves beside the object
         // name, so the controls drop below it there.
         direction={{ xs: "column", md: "row" }}
-        alignItems={{ xs: "flex-start", md: "center" }}
-        justifyContent={"space-between"}
-        width={"100%"}
-      >
+        sx={{
+          alignItems: { xs: "flex-start", md: "center" },
+          justifyContent: "space-between",
+          width: "100%"
+        }}>
         <Typography variant="h6">{obj}</Typography>
-        <Stack direction="row" spacing={3} alignItems="center">
+        <Stack direction="row" spacing={3} sx={{
+          alignItems: "center"
+        }}>
           <Button onClick={() => setOffcanvasVisible(true)} size="sm" color="info">
             <SvgIcon fontSize="small">
-              <InformationCircleIcon />
+              <CippIcons.InformationCircleIcon />
             </SvgIcon>
           </Button>
           <CippFormComponent
@@ -560,7 +603,9 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                   <Typography variant="h4">{type}</Typography>
                   <Stack spacing={1}>
                     {items.map((item, idx) => (
-                      <Stack key={`${type}-${idx}`} direction="row" alignItems="center" spacing={1}>
+                      <Stack key={`${type}-${idx}`} direction="row" spacing={1} sx={{
+                        alignItems: "center"
+                      }}>
                         <Typography variant="body2" sx={{ fontWeight: "bold", flexGrow: 1 }}>
                           {item.name}
                         </Typography>
@@ -571,7 +616,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                             sx={{ minWidth: "auto", p: 0.5 }}
                           >
                             <SvgIcon fontSize="small" color="info">
-                              <InformationCircleIcon />
+                              <CippIcons.InformationCircleIcon />
                             </SvgIcon>
                           </Button>
                         )}
@@ -625,7 +670,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
               />
             )}
             {selectedRole && isBaseRole && ["admin", "superadmin"].includes(selectedRole) && (
-              <Alert color="warning" icon={<WarningOutlined />}>
+              <Alert color="warning" icon={<CippIcons.WarningOutlined />}>
                 This is a highly privileged role and overrides any custom role restrictions.
               </Alert>
             )}
@@ -657,6 +702,26 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
               multiple={false}
               creatable={false}
               helperText="Assigning an Entra group will automatically assign this role to all users in that group. This does not work with users invited directly to Static Web App."
+            />
+            <CippFormComponent
+              type="autoComplete"
+              name="AllowedRolesTemplate"
+              label="JIT Role Template"
+              placeholder="Select a JIT Role Template to restrict which roles this role can assign, leave blank for all roles."
+              api={{
+                url: "/api/ListJITRoleTemplates",
+                type: "GET",
+                queryKey: "ListJITRoleTemplates",
+                labelField: "templateName",
+                valueField: "GUID",
+                showRefresh: true,
+              }}
+              formControl={formControl}
+              fullWidth={true}
+              sortOptions={true}
+              multiple={false}
+              creatable={false}
+              helperText="Restricts which directory roles members of this role can grant via JIT Admin. Leave blank to allow all roles."
             />
           </Stack>
           {!isBaseRole && (
@@ -693,6 +758,30 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                   />
                 </Box>
               )}
+              <Box sx={{ mb: 3 }}>
+                <CippFormComponent
+                  type="switch"
+                  name="BlockAllTenants"
+                  label="Block the All Tenants view"
+                  formControl={formControl}
+                  helperText="Members of this role cannot select All Tenants or run cross-tenant views. Another role without this setting still grants it."
+                />
+              </Box>
+
+              <Box sx={{ mb: 3 }}>
+                <CippFormComponent
+                  type="switch"
+                  name="BlockTenantGroups"
+                  label="Block tenant groups in the tenant selector"
+                  formControl={formControl}
+                  disabled={!tenantGroupSelectorEnabled}
+                  helperText={
+                    tenantGroupSelectorEnabled
+                      ? "Members of this role cannot pick a tenant group to view pages. They can still assign standards, alerts and other settings to groups. Another role without this setting still grants it."
+                      : "Tenant groups are not offered in the tenant selector. Turn on Tenant Groups in Tenant Selector under Application Settings > Features to use this setting."
+                  }
+                />
+              </Box>
 
               <Box sx={{ mb: 3 }}>
                 <CippFormComponent
@@ -775,6 +864,21 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
               disabled={selectedRole === "superadmin"}
             />
           </Box>
+          <Box sx={{ mb: 3 }}>
+            <CippFormComponent
+              type="autoComplete"
+              name="AppRoleTenants"
+              label="App Role Tenants (Entra tenant IDs)"
+              formControl={formControl}
+              multiple={true}
+              freeSolo={true}
+              creatable={true}
+              options={[]}
+              placeholder="Type a tenant ID and hit enter"
+              helperText="Users from these tenants who are assigned this role as an app role on the CIPP SSO enterprise app receive it at sign-in. Include your own tenant ID to use app roles there. Other tenants need the SSO app in multi-tenant mode and admin consent."
+              fullWidth={true}
+            />
+          </Box>
           {apiPermissionFetching && (
             <>
               <Typography variant="h5">
@@ -782,12 +886,13 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
               </Typography>
               <Stack
                 direction="row"
-                display="flex"
-                alignItems="center"
-                justifyContent={"space-between"}
-                width={"100%"}
-                sx={{ my: 2 }}
-              >
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  my: 2
+                }}>
                 <Skeleton width={180} />
                 <Box sx={{ pr: 5 }}>
                   <Skeleton width={300} height={40} />
@@ -979,7 +1084,14 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                     <Typography variant="subtitle2" sx={{ mb: 1 }}>
                       Live result
                     </Typography>
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1 }}>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      useFlexGap
+                      sx={{
+                        flexWrap: "wrap",
+                        mb: 1
+                      }}>
                       {currentRules.Include.map((pattern) => (
                         <Chip
                           key={`inc-${pattern}`}
@@ -992,7 +1104,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                           }
                           icon={
                             (ruleExpansion.includeCounts[pattern] ?? 0) === 0 ? (
-                              <WarningOutlined />
+                              <CippIcons.WarningOutlined />
                             ) : undefined
                           }
                         />
@@ -1007,7 +1119,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                           }
                           icon={
                             (ruleExpansion.excludeCounts[pattern] ?? 0) === 0 ? (
-                              <WarningOutlined />
+                              <CippIcons.WarningOutlined />
                             ) : undefined
                           }
                         />
@@ -1019,7 +1131,9 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                         access and cannot be saved.
                       </Alert>
                     ) : (
-                      <Stack direction="row" spacing={2} alignItems="center">
+                      <Stack direction="row" spacing={2} sx={{
+                        alignItems: "center"
+                      }}>
                         <Typography variant="body2">
                           <strong>{ruleExpansion.matched.length}</strong> of{" "}
                           {permissionUniverse.length} permissions granted
@@ -1072,17 +1186,19 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                         return (
                           <Accordion variant="outlined" disableGutters key={permission}>
                             <AccordionSummary
-                              expandIcon={<ExpandMoreIcon />}
+                              expandIcon={<CippIcons.ExpandMore />}
                               sx={{ "& .MuiAccordionSummary-content": { minWidth: 0 } }}
                             >
                               <Stack
                                 direction="row"
                                 spacing={1}
-                                alignItems="center"
                                 useFlexGap
-                                flexWrap="wrap"
-                                sx={{ minWidth: 0, width: "100%" }}
-                              >
+                                sx={{
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  minWidth: 0,
+                                  width: "100%"
+                                }}>
                                 <Typography
                                   variant="body2"
                                   sx={{
@@ -1122,7 +1238,9 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                                             {apiFunction.Name}
                                           </Typography>
                                           {description && (
-                                            <Typography variant="caption" color="text.secondary">
+                                            <Typography variant="caption" sx={{
+                                              color: "text.secondary"
+                                            }}>
                                               {description}
                                             </Typography>
                                           )}
@@ -1158,12 +1276,13 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                   {!isBaseRole && (
                     <Stack
                       direction="row"
-                      display="flex"
-                      alignItems="center"
-                      justifyContent={"space-between"}
-                      width={"100%"}
-                      sx={{ mb: 2 }}
-                    >
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        width: "100%",
+                        mb: 2
+                      }}>
                       <Typography variant="body2">Set All Permissions</Typography>
 
                       <Box sx={{ pr: 5 }}>
@@ -1193,7 +1312,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
                         .sort()
                         .map((cat, catIndex) => (
                           <Accordion variant="outlined" key={`accordion-item-${catIndex}`}>
-                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <AccordionSummary expandIcon={<CippIcons.ExpandMore />}>
                               {cat}
                             </AccordionSummary>
                             <AccordionDetails>
@@ -1274,6 +1393,16 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
               </ul>
             </>
           )}
+          {appRoleTenants?.length > 0 && (
+            <>
+              <h5>App Role Tenants</h5>
+              <ul>
+                {appRoleTenants.map((tenant, idx) => (
+                  <li key={`app-role-tenant-${idx}`}>{tenant?.value || tenant?.label || tenant}</li>
+                ))}
+              </ul>
+            </>
+          )}
           {!isBaseRole && permissionMode === "simple" && currentRules.Include.length > 0 && (
             <>
               <h5>Permission Rules</h5>
@@ -1317,7 +1446,9 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
       </Grid>
 
       <CippApiResults apiObject={updatePermissions} />
-      <Stack direction="row" spacing={2} justifyContent="flex-end">
+      <Stack direction="row" spacing={2} sx={{
+        justifyContent: "flex-end"
+      }}>
         <Button
           className="me-2"
           type="submit"
@@ -1337,7 +1468,7 @@ export const CippRoleAddEdit = ({ selectedRole }) => {
           }
           startIcon={
             <SvgIcon fontSize="small">
-              <Save />
+              <CippIcons.Save />
             </SvgIcon>
           }
           onClick={handleSubmit}

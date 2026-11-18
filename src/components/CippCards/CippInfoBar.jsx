@@ -15,7 +15,7 @@ export const CippInfoBar = ({ data, isFetching }) => {
         {data.map((item, index) => (
           <Fragment key={item.name}>
             <Grid
-              size={{ md: 3, sm: 6, xs: 12 }}
+              size={{ md: 12 / Math.max(data.length, 4), sm: 6, xs: 12 }}
               onClick={
                 item.offcanvas
                   ? () => setVisibleIndex(index)
@@ -42,18 +42,20 @@ export const CippInfoBar = ({ data, isFetching }) => {
                     sm: 'none',
                   }),
                 },
-                '&:nth-of-type(4)': {
+                [data.length > 4 ? '&:last-of-type' : '&:nth-of-type(4)']: {
                   borderBottom: 'none',
                   borderRight: 'none',
                 },
               }}
             >
               <Stack
-                alignItems="center"
                 direction="row"
                 spacing={2}
-                sx={{ p: 2, minWidth: 0 }}
-              >
+                sx={{
+                  alignItems: "center",
+                  p: 2,
+                  minWidth: 0
+                }}>
                 {item?.icon && (
                   <SvgIcon
                     color={item.color ? item.color : 'primary'}
@@ -74,23 +76,25 @@ export const CippInfoBar = ({ data, isFetching }) => {
                       }}
                     >
                       <Typography
-                        color="text.secondary"
                         variant="overline"
                         sx={{
+                          color: "text.secondary",
                           display: 'block',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
+                          whiteSpace: 'nowrap'
+                        }}>
                         {item.name}
                       </Typography>
+                      {/* One tile spans the full width on a phone, so the value wraps there
+                          instead of ellipsizing an address that would otherwise fit. */}
                       <Typography
                         variant="h6"
                         sx={{
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
+                          whiteSpace: { xs: 'normal', md: 'nowrap' },
+                          overflowWrap: 'anywhere',
                         }}
                       >
                         {isFetching ? <Skeleton width={'100%'} /> : item.data}
@@ -107,15 +111,14 @@ export const CippInfoBar = ({ data, isFetching }) => {
                     }}
                   >
                     <Typography
-                      color="text.secondary"
                       variant="overline"
                       sx={{
+                        color: "text.secondary",
                         display: 'block',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
+                        whiteSpace: 'nowrap'
+                      }}>
                       {item.name}
                     </Typography>
                     <Typography
@@ -123,7 +126,8 @@ export const CippInfoBar = ({ data, isFetching }) => {
                       sx={{
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        whiteSpace: { xs: 'normal', md: 'nowrap' },
+                        overflowWrap: 'anywhere',
                       }}
                     >
                       {isFetching ? <Skeleton width={'100%'} /> : item.data}
@@ -168,5 +172,5 @@ export const CippInfoBar = ({ data, isFetching }) => {
         ))}
       </Grid>
     </Card>
-  )
+  );
 }

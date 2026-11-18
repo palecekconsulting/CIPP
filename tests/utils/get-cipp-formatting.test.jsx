@@ -123,6 +123,17 @@ describe('getCippFormatting (component mode)', () => {
     expect(() => getCippFormatting(undefined, 'logsToInclude')).not.toThrow()
     expect(getCippFormatting(null, 'Severity', 'text')).toBe('No data')
   })
+
+  it('colours GDAP GroupStatus by severity', () => {
+    const colorOf = (value) => getCippFormatting(value, 'GroupStatus').props.color
+    expect(colorOf('Valid')).toBe('success')
+    expect(colorOf('Created')).toBe('success')
+    expect(colorOf('Stale')).toBe('warning')
+    expect(colorOf('Missing')).toBe('error')
+    expect(colorOf('Unknown')).toBe('default')
+    expect(getCippFormatting('Stale', 'GroupStatus').props.label).toBe('Stale')
+    expect(getCippFormatting('Stale', 'GroupStatus', 'text')).toBe('Stale')
+  })
 })
 
 // Role members exported as raw JSON instead of a name list.
@@ -175,5 +186,52 @@ describe('getCippFormatting Members (roles export)', () => {
     const cell = getCippFormatting(members, 'Members')
     expect(typeof cell).toBe('object')
     expect(cell?.props?.tableTitle).toBe('Members')
+  })
+})
+
+describe('getCippFormatting usage (Intune template references, #1220)', () => {
+  const usage = [
+    {
+      kind: 'Baseline',
+      templateName: 'Tier 2 Baseline',
+      templateId: 'b1',
+      stage: 1,
+      stageName: 'Pilot',
+      stageCount: 3,
+      remediateEnabled: true,
+      matchType: 'direct',
+      label: 'Tier 2 Baseline | Stage 1: Pilot of 3 | Remediate',
+    },
+    {
+      kind: 'Standards Template',
+      templateName: 'Old Standard',
+      templateId: 's1',
+      remediateEnabled: false,
+      matchType: 'package',
+      package: 'Win11',
+      label: 'Old Standard | Standards template | Report only | via package Win11',
+    },
+  ]
+
+  it('joins the labels in text mode instead of emitting JSON', () => {
+    const text = getCippFormatting(usage, 'usage', 'text')
+    expect(text).toBe(
+      'Tier 2 Baseline | Stage 1: Pilot of 3 | Remediate, Old Standard | Standards template | Report only | via package Win11'
+    )
+    expect(text).not.toContain('{')
+  })
+
+  it('renders one chip per reference in component mode', () => {
+    const cell = getCippFormatting(usage, 'usage')
+    expect(typeof cell).toBe('object')
+    // the chip list, not the generic "N items" table button
+    expect(cell?.props?.tableTitle).toBeUndefined()
+    expect(cell?.props?.children).toHaveLength(2)
+  })
+
+  it('keeps the generic path for an empty or label-less list', () => {
+    expect(getCippFormatting([], 'usage', 'text')).toBe('')
+    const cell = getCippFormatting([{ templateId: 'x' }], 'usage')
+    expect(cell?.props?.tableTitle).toBe('Usage')
   })
 })

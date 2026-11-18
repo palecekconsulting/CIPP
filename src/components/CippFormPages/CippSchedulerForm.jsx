@@ -12,6 +12,7 @@ import {
   IconButton,
   Alert,
 } from '@mui/material'
+import { CippIcons } from '../../utils/icon-registry'
 import { Grid, Stack } from '@mui/system'
 import { useWatch } from 'react-hook-form'
 import CippFormComponent from '../CippComponents/CippFormComponent'
@@ -20,16 +21,17 @@ import { CippFormCondition } from '../CippComponents/CippFormCondition'
 import CippGraphResourceSelector from '../CippComponents/CippGraphResourceSelector'
 import CippGraphAttributeSelector from '../CippComponents/CippGraphAttributeSelector'
 import { getCippValidator } from '../../utils/get-cipp-validator'
+import { pushEnrolmentHint, usePushDevices } from '../../hooks/use-push-subscription'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { ApiGetCall, ApiPostCall } from '../../api/ApiCall'
 import { useEffect, useState } from 'react'
 import CippFormInputArray from '../CippComponents/CippFormInputArray'
 import { CippApiResults } from '../CippComponents/CippApiResults'
-import { CalendarDaysIcon } from '@heroicons/react/24/outline'
-import { ExpandMoreOutlined, Delete, Add, Sync } from '@mui/icons-material'
 
 const CippSchedulerForm = (props) => {
+  const pushDevices = usePushDevices()
+  const pushEnrolled = pushDevices.devices.length > 0
   const {
     formControl,
     fullWidth = false,
@@ -81,6 +83,15 @@ const CippSchedulerForm = (props) => {
 
   const handleSubmit = () => {
     const values = formControl.getValues()
+
+    // In advanced mode the JSON is the parameters; the hidden standard fields hold stale nulls
+    if (values.advancedParameters && values.RawJsonParameters) {
+      try {
+        values.parameters = JSON.parse(values.RawJsonParameters)
+      } catch {
+        return
+      }
+    }
 
     // Extract values from string array parameters
     if (values.parameters && selectedCommand?.addedFields?.Parameters) {
@@ -373,7 +384,9 @@ const CippSchedulerForm = (props) => {
 
       // Early return if task is not found
       if (!task) {
-        console.warn(`Task with RowKey ${taskId || router.query.id} not found`)
+        // The id comes from the URL; strip line breaks so it cannot forge extra log lines.
+        const requestedId = String(taskId || router.query.id).replace(/[\r\n]/g, '')
+        console.warn(`Task with RowKey ${requestedId} not found`)
         return
       }
 
@@ -503,6 +516,8 @@ const CippSchedulerForm = (props) => {
           const ResetParams = {
             tenantFilter: tenantFilterForForm,
             PsaTicketStrategy: psaStrategyValue,
+            PsaTicketId: task.PsaTicketId,
+            reference: task.Reference,
             RowKey: router.query.Clone || cloneMode ? null : task.RowKey,
             Name:
               router.query.Clone || cloneMode
@@ -515,7 +530,19 @@ const CippSchedulerForm = (props) => {
             },
             ScheduledTime: task.ScheduledTime,
             Recurrence: recurrence,
-            parameters: task.Parameters,
+            // PowerShell parameters are case-insensitive; match the field names so a stored
+            // 'skipCache' fills the SkipCache field instead of posting alongside it
+            parameters:
+              task.Parameters && typeof task.Parameters === 'object'
+                ? Object.fromEntries(
+                    Object.entries(task.Parameters).map(([key, value]) => [
+                      commandForForm?.Parameters?.find(
+                        (p) => p.Name.toLowerCase() === key.toLowerCase()
+                      )?.Name ?? key,
+                      value,
+                    ])
+                  )
+                : task.Parameters,
             postExecution: postExecution,
             // Set task type based on whether trigger exists
             taskType: task.Trigger
@@ -675,7 +702,9 @@ const CippSchedulerForm = (props) => {
               { label: 'Webhook', value: 'Webhook' },
               { label: 'Email', value: 'Email' },
               { label: 'PSA', value: 'PSA' },
+              ...(pushEnrolled ? [{ label: 'Push (notify me)', value: 'Push' }] : []),
             ]}
+            helperText={pushEnrolmentHint(pushDevices)}
           />
         </Grid>
 
@@ -697,6 +726,18 @@ const CippSchedulerForm = (props) => {
               options={psaStrategyDropdownOptions}
             />
           </Grid>
+          {integrationsConfig?.data?.HaloPSA?.Enabled === true && (
+            <Grid size={{ md: 12, xs: 12 }}>
+              <CippFormComponent
+                type="number"
+                name="PsaTicketId"
+                label="HaloPSA Ticket"
+                formControl={formControl}
+                placeholder="Enter the related HaloPSA Ticket ID"
+                helperText="The results are added to the associated ticket in HaloPSA as a note instead of raising a new ticket."
+              />
+            </Grid>
+          )}
         </CippFormCondition>
 
         <Grid size={{ md: 12, xs: 12 }}>
@@ -750,7 +791,7 @@ const CippSchedulerForm = (props) => {
         >
           <Grid size={{ md: 12, xs: 12 }}>
             <Accordion defaultExpanded variant="outlined">
-              <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+              <AccordionSummary expandIcon={<CippIcons.ExpandMoreOutlined />}>
                 <Box
                   sx={{
                     display: 'flex',
@@ -761,7 +802,9 @@ const CippSchedulerForm = (props) => {
                 >
                   <Typography variant="h6">Trigger Configuration</Typography>
                   {getTriggerSummary() && (
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       - {getTriggerSummary()}
                     </Typography>
                   )}
@@ -906,7 +949,7 @@ const CippSchedulerForm = (props) => {
                             Delta Query Conditions
                           </Typography>
                           <Button
-                            startIcon={<Add />}
+                            startIcon={<CippIcons.Add />}
                             onClick={handleAddCondition}
                             variant="outlined"
                             size="small"
@@ -916,9 +959,10 @@ const CippSchedulerForm = (props) => {
                         </Box>
                         <Typography
                           variant="body2"
-                          color="text.secondary"
-                          sx={{ mb: 2 }}
-                        >
+                          sx={{
+                            color: "text.secondary",
+                            mb: 2
+                          }}>
                           Create PowerShell-style Where-Object conditions to
                           filter delta query results. Each condition compares a
                           resource property against a specific value. Multiple
@@ -965,7 +1009,7 @@ const CippSchedulerForm = (props) => {
                               onClick={() => handleRemoveCondition(index)}
                               color="error"
                             >
-                              <Delete />
+                              <CippIcons.Delete />
                             </IconButton>
                           </Grid>
                         </Grid>
@@ -1032,7 +1076,7 @@ const CippSchedulerForm = (props) => {
         >
           <Grid size={{ md: 12, xs: 12 }}>
             <Accordion defaultExpanded variant="outlined">
-              <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+              <AccordionSummary expandIcon={<CippIcons.ExpandMoreOutlined />}>
                 <Box
                   sx={{
                     display: 'flex',
@@ -1043,7 +1087,9 @@ const CippSchedulerForm = (props) => {
                 >
                   <Typography variant="h6">Schedule Configuration</Typography>
                   {getScheduleSummary() && (
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{
+                      color: "text.secondary"
+                    }}>
                       - {getScheduleSummary()}
                     </Typography>
                   )}
@@ -1113,7 +1159,7 @@ const CippSchedulerForm = (props) => {
         {/* Command & Parameters - For both scheduled and triggered tasks */}
         <Grid size={{ md: 12, xs: 12 }}>
           <Accordion defaultExpanded variant="outlined">
-            <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+            <AccordionSummary expandIcon={<CippIcons.ExpandMoreOutlined />}>
               <Box
                 sx={{
                   display: 'flex',
@@ -1124,7 +1170,9 @@ const CippSchedulerForm = (props) => {
               >
                 <Typography variant="h6">Command & Parameters</Typography>
                 {getCommandSummary() && (
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{
+                    color: "text.secondary"
+                  }}>
                     - {getCommandSummary()}
                   </Typography>
                 )}
@@ -1134,7 +1182,9 @@ const CippSchedulerForm = (props) => {
               <Grid container spacing={2}>
                 {/* Command selection for both scheduled and triggered tasks */}
                 <Grid size={{ md: gridSize, xs: 12 }}>
-                  <Stack direction="row" alignItems="center" spacing={1}>
+                  <Stack direction="row" spacing={1} sx={{
+                    alignItems: "center"
+                  }}>
                     <Box sx={{ flexGrow: 1 }}>
                       <CippFormComponent
                         name="command"
@@ -1194,7 +1244,7 @@ const CippSchedulerForm = (props) => {
                       />
                     </Box>
                     <IconButton onClick={() => commands.refetch()}>
-                      <Sync />
+                      <CippIcons.Sync />
                     </IconButton>
                   </Stack>
                 </Grid>
@@ -1203,7 +1253,9 @@ const CippSchedulerForm = (props) => {
                   <Grid size={{ md: 12, xs: 12 }}>
                     <Box sx={{ my: 1 }}>
                       <Typography variant="h6">PowerShell Command:</Typography>
-                      <Typography variant="body2" color={'text.secondary'}>
+                      <Typography variant="body2" sx={{
+                        color: 'text.secondary'
+                      }}>
                         {selectedCommand.addedFields.Synopsis}
                       </Typography>
                     </Box>
@@ -1216,6 +1268,7 @@ const CippSchedulerForm = (props) => {
                     compareType="isNot"
                     compareValue={true}
                     formControl={formControl}
+                    clearOnHide={false}
                     key={idx}
                   >
                     <Grid
@@ -1347,7 +1400,7 @@ const CippSchedulerForm = (props) => {
             type="submit"
             startIcon={
               <SvgIcon fontSize="small">
-                <CalendarDaysIcon />
+                <CippIcons.CalendarDaysIcon />
               </SvgIcon>
             }
           >
@@ -1359,7 +1412,7 @@ const CippSchedulerForm = (props) => {
         </Grid>
       </Grid>
     </>
-  )
+  );
 }
 
 export default CippSchedulerForm
